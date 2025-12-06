@@ -13,30 +13,45 @@ export const applyCamera = (p: Point3D, pitch: number, yaw: number) => {
     return { x: p1x, y: p2y, z: p2z };
 };
 
-export const projectToSection = (p: Point3D, s: Section, depth: number) => {
+export const projectPointToSectionPlane = (
+    p: Point3D,
+    s: Section,
+    depth: number
+): { point: { x: number; y: number }; offset: number } => {
     // Vector along section line
     const dx = s.p2.x - s.p1.x;
     const dy = s.p2.y - s.p1.y;
     const len = Math.hypot(dx, dy);
-    
-    // If degenerate line, return 0
-    if (len < 1e-6) return { x: 0, y: (depth + 40) - p.z };
+
+    // If degenerate line, return 0 but mark offset so consumers can ignore
+    if (len < 1e-6) return { point: { x: 0, y: (depth + 40) - p.z }, offset: Number.POSITIVE_INFINITY };
 
     const ux = dx / len;
     const uy = dy / len;
 
-    // Vector from p1 to point
+    // Vector from p1 to point (in plan coordinates X/Y)
     const vx = p.x - s.p1.x;
     const vy = p.y - s.p1.y;
 
-    // Project v onto u (dot product) to get distance along the line
+    // Distance along the cut line (dot product)
     const distAlong = vx * ux + vy * uy;
+
+    // Signed perpendicular distance (cross product against unit vector)
+    const offset = vx * (-uy) + vy * ux;
 
     // Y axis in section view corresponds to Z axis in world (inverted for SVG)
     return {
-        x: distAlong,
-        y: (depth + 40) - p.z
+        point: {
+            x: distAlong,
+            y: (depth + 40) - p.z
+        },
+        offset
     };
+};
+
+export const projectToSection = (p: Point3D, s: Section, depth: number) => {
+    const { point } = projectPointToSectionPlane(p, s, depth);
+    return point;
 };
 
 export const projectPoint = (

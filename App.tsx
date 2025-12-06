@@ -312,8 +312,8 @@ const App: React.FC = () => {
             const newSection: Section = {
                 id: `sec-${Date.now()}`,
                 name: `Section ${sections.length + 1}`,
-                p1: { x: tempSectionStart.x, y: tempSectionStart.z }, // Map World Z to Plan Y
-                p2: { x: p.x, y: p.z }
+                p1: { x: tempSectionStart.x, y: tempSectionStart.y },
+                p2: { x: p.x, y: p.y }
             };
             setSections(prev => [...prev, newSection]);
             setSectionCreationState('idle');
@@ -450,6 +450,7 @@ const App: React.FC = () => {
                             setRoutes={setRoutes}
                             sectionCreationState={sectionCreationState}
                             setSectionCreationState={setSectionCreationState}
+                            sectionDraftStart={tempSectionStart}
                             onDefineSectionPoint={handleDefineSectionPoint}
                             
                             activeTool={activeTool}

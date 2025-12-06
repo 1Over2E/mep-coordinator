@@ -2,7 +2,7 @@
 import React, { useRef, useMemo, useState, useEffect, useCallback } from 'react';
 import { Shape, Point3D, Route, Section, Wall, Hallway, LineSegment, DrawingTool, Point2D, Room, Endpoint, Trunk, TagSettings, SelectionState, Branch, RouteOptions, Clash, PlanView } from '../types';
 import { worldToScreen, screenToWorld, SCREEN_W, SCREEN_H, MAX_DEPTH, ViewType } from '../utils/viewport';
-import { projectPoint, applyCamera } from '../utils/projection';
+import { applyCamera, projectPointToSectionPlane } from '../utils/projection';
 import { useCamera } from '../hooks/useCamera';
 import { findRouteAStar, resolveCollisions, keepInScreen, getShapeBBox, getAttachmentRects, checkParallelism, getHallwayPolygon, getSnappedPoint, isPointClose } from '../services/mepService';
 import { HallwayState, SectionCreationState } from '../App';
@@ -64,6 +64,7 @@ interface ViewSVGProps {
     sections?: Section[];
     sectionCreationState?: SectionCreationState;
     setSectionCreationState?: (state: SectionCreationState) => void;
+    sectionDraftStart?: Point3D | null;
     onDefineSectionPoint?: (p: Point3D) => void;
     titleOverride?: string;
     activeSection?: Section | null;
@@ -119,7 +120,56 @@ const AxesLayer = React.memo(({ showAxes, viewType }: { showAxes: boolean, viewT
             </g>
         );
     }
+    if (viewType === 'section') {
+        return (
+            <g pointerEvents="none">
+                <line x1="20" y1={SCREEN_H - 20} x2="20" y2="40" stroke="#34d399" strokeWidth="2" />
+                <text x="25" y="40" fill="#34d399" fontSize="16" fontWeight="bold">+Z (Up)</text>
+                <line x1="20" y1={SCREEN_H - 20} x2={SCREEN_W - 40} y2={SCREEN_H - 20} stroke="#c084fc" strokeWidth="2" />
+                <text x={SCREEN_W - 40} y={SCREEN_H - 25} fill="#c084fc" fontSize="16" fontWeight="bold">Along Cut</text>
+            </g>
+        );
+    }
     return null;
+});
+
+const SectionProjectionLayer = React.memo(({ section, routes, clashes, thickness }: { section: Section, routes: Route[], clashes: Clash[], thickness: number }) => {
+    const halfThickness = Math.max(1, thickness / 2);
+    const project = (p: Point3D) => projectPointToSectionPlane(p, section, SCREEN_H);
+
+    return (
+        <g>
+            {routes.map((r: Route) => {
+                const projectedPath = r.path.map(pt => project(pt));
+                const nearestOffset = Math.min(...projectedPath.map(p => Math.abs(p.offset)));
+
+                if (!Number.isFinite(nearestOffset) || nearestOffset > halfThickness) return null;
+                const opacity = Math.max(0.25, 1 - (nearestOffset / (halfThickness * 1.5)));
+
+                return (
+                    <polyline
+                        key={r.id}
+                        points={projectedPath.map(p => `${p.point.x},${p.point.y}`).join(' ')}
+                        fill="none"
+                        stroke="cyan"
+                        strokeWidth="2"
+                        opacity={opacity}
+                    />
+                );
+            })}
+
+            {clashes.map(c => {
+                const proj = project(c.at);
+                if (!Number.isFinite(proj.offset) || Math.abs(proj.offset) > halfThickness) return null;
+                return (
+                    <g key={c.id} transform={`translate(${proj.point.x},${proj.point.y})`}>
+                        <circle r={c.severity === 'hard' ? 8 : 5} fill="none" stroke={c.severity === 'hard' ? 'red' : 'yellow'} strokeWidth="2" className="animate-ping" />
+                        <circle r="2" fill="white" />
+                    </g>
+                );
+            })}
+        </g>
+    );
 });
 
 const StaticShapesLayer = React.memo(({ viewType, shapes, selection, violations, searchQuery, tagSettings, rectBaseline, circleCenterline, endpoints, rooms, trunks, branches, hallway }: any) => {
@@ -239,7 +289,7 @@ const ViewSVG: React.FC<ViewSVGProps> = ({
     hallway, setHallway, hallwayState, setHallwayState, hallwayViolations = [], clashes = [],
     activeTool = 'none', setActiveTool, rooms = [], setRooms, endpoints = [], setEndpoints, trunks = [], setTrunks, branches = [],
     tagSettings, searchQuery, routeOptions,
-    sections, sectionCreationState, setSectionCreationState, onDefineSectionPoint, titleOverride, activeSection,
+    sections, sectionCreationState, setSectionCreationState, sectionDraftStart, onDefineSectionPoint, titleOverride, activeSection,
     activePlan, isCadEditable, onUpdatePlan
 }) => {
     const svgRef = useRef<SVGSVGElement>(null);
@@ -282,12 +332,12 @@ const ViewSVG: React.FC<ViewSVGProps> = ({
 
         // Section Creation Point 1 (Plan View)
         if (viewType === 'plan' && sectionCreationState === 'start' && onDefineSectionPoint) {
-            onDefineSectionPoint({ x: clickWorld.x, y: 0, z: clickWorld.y }); // Use Y (Depth) for plan Z coord
+            onDefineSectionPoint({ x: clickWorld.x, y: clickWorld.y, z: 0 });
             return;
         }
         // Section Creation Point 2 (Plan View)
         if (viewType === 'plan' && sectionCreationState === 'end' && onDefineSectionPoint) {
-            onDefineSectionPoint({ x: clickWorld.x, y: 0, z: clickWorld.y });
+            onDefineSectionPoint({ x: clickWorld.x, y: clickWorld.y, z: 0 });
             return;
         }
 
@@ -406,7 +456,9 @@ const ViewSVG: React.FC<ViewSVGProps> = ({
         setCadDrag(null);
     };
 
-    const viewBox = `0 0 ${SCREEN_W} ${SCREEN_H}`; 
+    const viewBox = `0 0 ${SCREEN_W} ${SCREEN_H}`;
+    const isDrawingContext = (viewType === 'front' || viewType === 'plan') && (activeTool !== 'none' || sectionCreationState !== 'idle');
+    const svgCursorClass = dragged || cadDrag ? 'cursor-grabbing' : (isDrawingContext ? 'cursor-crosshair' : '');
 
     return (
         <div className="w-full h-full flex flex-col">
@@ -419,7 +471,7 @@ const ViewSVG: React.FC<ViewSVGProps> = ({
                     width="100%"
                     height="100%"
                     viewBox={viewBox}
-                    className={`absolute top-0 left-0 ${dragged || cadDrag ? 'cursor-grabbing' : (activeTool !== 'none' || sectionCreationState !== 'idle' ? 'cursor-crosshair' : '')}`}
+                    className={`absolute top-0 left-0 ${svgCursorClass}`}
                     onMouseDown={handleMouseDown}
                     onMouseMove={handleMouseMove}
                     onMouseUp={handleMouseUp}
@@ -441,21 +493,30 @@ const ViewSVG: React.FC<ViewSVGProps> = ({
                         />
                     )}
                     
-                    <StaticShapesLayer 
-                        viewType={viewType} shapes={shapes} selection={selection} 
-                        violations={hallwayViolations} searchQuery={searchQuery} 
-                        tagSettings={tagSettings} rectBaseline={settings.rectBaseline} 
+                    <StaticShapesLayer
+                        viewType={viewType} shapes={shapes} selection={selection}
+                        violations={hallwayViolations} searchQuery={searchQuery}
+                        tagSettings={tagSettings} rectBaseline={settings.rectBaseline}
                         circleCenterline={settings.circleCenterline}
                         rooms={rooms} trunks={trunks} endpoints={endpoints} branches={branches} hallway={hallway}
                     />
+
+                    {viewType === 'section' && activeSection && (
+                        <SectionProjectionLayer
+                            section={activeSection}
+                            routes={routes}
+                            clashes={clashes}
+                            thickness={routeOptions?.sectionDepthPx || 200}
+                        />
+                    )}
 
                     {/* Section Cuts Overlay (Plan View) */}
                     {viewType === 'plan' && sections && (
                         <g>
                             {sections.map(sec => (
                                 <g key={sec.id}>
-                                    <line 
-                                        x1={sec.p1.x} y1={sec.p1.y} 
+                                    <line
+                                        x1={sec.p1.x} y1={sec.p1.y}
                                         x2={sec.p2.x} y2={sec.p2.y} 
                                         stroke={activeSection?.id === sec.id ? "cyan" : "rgba(255,255,255,0.5)"} 
                                         strokeWidth="2" 
@@ -465,12 +526,12 @@ const ViewSVG: React.FC<ViewSVGProps> = ({
                                 </g>
                             ))}
                             {/* Drawing New Section */}
-                            {sectionCreationState === 'end' && cursorPos && (
-                                <line 
-                                    x1={screenToWorld({x:0, y:0}, 'plan').x} // Placeholder: Start point is implicit in state logic, omitted for brevity visual
-                                    y1={0} 
-                                    x2={cursorPos.x} y2={cursorPos.z} 
-                                    stroke="yellow" strokeWidth="2" strokeDasharray="5,5" 
+                            {sectionCreationState === 'end' && cursorPos && sectionDraftStart && (
+                                <line
+                                    x1={sectionDraftStart.x}
+                                    y1={sectionDraftStart.y}
+                                    x2={cursorPos.x} y2={cursorPos.z}
+                                    stroke="yellow" strokeWidth="2" strokeDasharray="5,5"
                                 />
                             )}
                         </g>
