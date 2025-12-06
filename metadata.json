@@ -1,0 +1,5 @@
+{
+  "name": "MEP Clash Resolver",
+  "description": "An interactive 2D web application for visualizing and resolving clashes between Mechanical, Electrical, and Plumbing (MEP) components like ducts and pipes. This tool implements rule-based layout constraints, automated collision detection, and an iterative solver to produce design-aware, clash-free configurations.",
+  "requestFramePermissions": []
+}
