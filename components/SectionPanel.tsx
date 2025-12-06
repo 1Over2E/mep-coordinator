@@ -43,6 +43,7 @@ interface SectionPanelProps {
     setRoutes: React.Dispatch<React.SetStateAction<Route[]>>;
     sectionCreationState: SectionCreationState;
     setSectionCreationState: (state: SectionCreationState) => void;
+    sectionDraftStart?: Point3D | null;
     onDefineSectionPoint: (p: Point3D) => void;
     
     // Pass through props for ViewSVG
@@ -66,7 +67,7 @@ const SectionPanel: React.FC<SectionPanelProps> = ({
     onStartSectionCreation, onDeleteSection, onAddPlan, onUpdatePlan, onDeletePlan,
     camera,
     settings, selectedIndex, setSelectedIndex, setShapes, routingState, setRoutingState, startPoint, setStartPoint, setRoutes,
-    sectionCreationState, setSectionCreationState, onDefineSectionPoint,
+    sectionCreationState, setSectionCreationState, sectionDraftStart, onDefineSectionPoint,
     activeTool, setActiveTool, rooms, setRooms, endpoints, setEndpoints, trunks, setTrunks, branches, routeOptions, tagSettings, searchQuery,
     viewTitleOverride, viewType = 'plan'
 }) => {
@@ -280,6 +281,7 @@ const SectionPanel: React.FC<SectionPanelProps> = ({
                     sections={sections}
                     sectionCreationState={sectionCreationState}
                     setSectionCreationState={setSectionCreationState}
+                    sectionDraftStart={sectionDraftStart}
                     onDefineSectionPoint={onDefineSectionPoint}
                     titleOverride={effectiveTitle}
                     
